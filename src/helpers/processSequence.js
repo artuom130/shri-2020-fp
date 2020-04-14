@@ -14,15 +14,18 @@
  * Иногда промисы от API будут приходить в состояние rejected, (прямо как и API в реальной жизни)
  * Ответ будет приходить в поле {result}
  */
-import { pipe, tap, ifElse, andThen, length, otherwise, prop, has, always } from "ramda";
+import { tap, length, prop, pipeWith } from "ramda";
 import Api from "../tools/api";
 
 const api = new Api();
 
 const validator = (strNum) => {
-  const checkNumberSystem = (str) => /^\d+\.?\d+$/.test(str);
-  const numberLength = strNum.length;
-  return checkNumberSystem(strNum) && numberLength < 10 && numberLength > 2;
+  return new Promise((resolve, reject) => {
+    const checkNumberSystem = (str) => /^\d+\.?\d+$/.test(str);
+    const numberLength = strNum.length;
+    const isValid = checkNumberSystem(strNum) && numberLength < 10 && numberLength > 2;
+    isValid ? resolve(strNum) : reject("Validation error");
+  });
 };
 
 const convertApiFetcher = api.get("https://api.tech/numbers/base");
@@ -30,22 +33,30 @@ const convertApiRequest = (value) => convertApiFetcher({ from: 10, to: 2, number
 const animalApiRequest = (id) => api.get(`https://animals.tech/${id}`, {});
 const getResult = prop("result");
 
+const convertToInt = (str) => Math.round(str);
 const squareNum = (num) => Math.pow(num, 2);
 const reminderOfDivisionThree = (num) => num % 3;
-const convertToInt = (str) => Math.round(str);
-// eslint-disable-next-line no-unused-vars
-const clog = (m) => tap((v) => console.log(m, v));
+
+const pipePromises = pipeWith((f, res) => {
+  return res instanceof Promise
+    ? res.then((v) => Promise.resolve(f(v))).catch((e) => Promise.reject(e))
+    : Promise.resolve(f(res));
+});
 
 const processSequence = (obj) => {
   const { value, writeLog, handleSuccess, handleError } = obj;
 
   const logEffect = tap((val) => writeLog(val));
-  const errorEffect = tap(() => handleError("ValidationError"));
-  const networkErrorEffect = tap((v) => handleError(v));
   const successEffect = tap((val) => handleSuccess(val));
-  const stop = always(undefined);
 
-  const processConvertApiResult = pipe(
+  const processValue = pipePromises([
+    logEffect,
+    validator,
+    convertToInt,
+    logEffect,
+    convertApiRequest,
+    getResult,
+    logEffect,
     length,
     logEffect,
     squareNum,
@@ -53,21 +64,11 @@ const processSequence = (obj) => {
     reminderOfDivisionThree,
     logEffect,
     animalApiRequest,
-    otherwise(networkErrorEffect),
-    andThen(ifElse(has("result"), pipe(getResult, successEffect), stop))
-  );
+    getResult,
+    successEffect,
+  ]);
 
-  const processConvertApiReq = pipe(
-    convertToInt,
-    logEffect,
-    convertApiRequest,
-    otherwise(networkErrorEffect),
-    andThen(ifElse(has("result"), pipe(getResult, logEffect, processConvertApiResult), stop))
-  );
-
-  const processValue = pipe(logEffect, ifElse(validator, processConvertApiReq, errorEffect));
-
-  processValue(value);
+  processValue(value).catch((err) => handleError(err));
 };
 
 export default processSequence;

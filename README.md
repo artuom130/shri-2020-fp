@@ -11,4 +11,6 @@
 
 ### `npm run start`
 
-# Добавил свои тесты для валидаторов validators.mytest.js
+# ABOUT
+
+Добавил свои тесты для валидаторов validators.mytest.js
